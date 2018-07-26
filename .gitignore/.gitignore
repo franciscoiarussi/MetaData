@@ -1,0 +1,121 @@
+import torch
+import torch.nn as nn
+import torchvision
+from torchvision import transforms
+import csv
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+path='/home/fran/entrena/Data/training'
+path2='/home/fran/entrena/Data/testing'
+input_size=45
+hidden_size=32
+num_epochs = 5
+batch_size = 100
+learning_rate = 0.001
+
+
+# You should your build your custom dataset as below.
+class DataJampp(torch.utils.data.Dataset):
+    def __init__(self, path):
+        # Directory
+        self.path  = path
+        self.data = []
+        with open(self.path) as csvfile:
+			readCSV = csv.reader(csvfile, delimiter=',')
+			for row in readCSV:
+				i=0
+				ron=[]
+				for x in row:
+					if not(i==9 or i==10 or i==11 or i==30 or i==49 or i==50):
+						if x=='':
+							ron.append(0.0)
+						else:
+							ron.append(float(x))
+					i=i+1
+				self.data.append(ron)
+    def __getitem__(self, index):
+        # Read image
+        ten=self.data[index][1:]
+        a=torch.tensor(ten)
+        b=torch.tensor(self.data[index][0:1])
+        # transform
+        return b, a
+    def __len__(self):
+		cantidad=0
+		with open(self.path) as csvfile:
+			readCSV = csv.reader(csvfile, delimiter=',')
+			for row in readCSV:
+				cantidad=cantidad+1
+		return cantidad
+    
+    
+# Fully connected neural network with one hidden layer
+class NeuralNet(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(NeuralNet, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size) 
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size, 1)  
+    
+    def forward(self, x):
+        out = self.fc1(x)
+        out = self.relu(out)
+        out = self.fc2(out)
+        return out
+
+training_dataSet=DataJampp(path)
+
+model = NeuralNet(input_size, hidden_size).to(device)
+
+# Loss and optimizer
+criterion = nn.L1Loss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)  
+
+
+# Train the model
+total_step = len(training_dataSet)
+for epoch in range(num_epochs):
+    for i, (label, feature) in enumerate(training_dataSet):  
+        # Move tensors to the configured device
+        feature = feature.reshape(-1, 45).to(device)
+        label = label.reshape(-1, 1).to(device)
+        
+        # Forward pass
+        outputs = model(feature)
+        loss = criterion(outputs, label)
+        
+        # Backward and optimize
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        if (i+1) % 10000 == 0:
+            print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}' 
+                   .format(epoch+1, num_epochs, i+1, total_step, loss.item()))
+
+
+
+
+
+test_loader=DataJampp(path2)
+
+# Test the model
+# In test phase, we don't need to compute gradients (for memory efficiency)
+with torch.no_grad():
+    correct = 0
+    total = 0
+    for feature, label in test_loader:
+        feature = feature.reshape(-1, 45).to(device)
+        label = label.reshape(-1, 1).to(device)
+        outputs = model(feature)
+        _, predicted = torch.max(outputs.data, 1)
+        total += label.size(0)
+        correct += (predicted == label).sum().item()
+
+    print('Accuracy of the network on the 10000 test images: {} %'.format(100 * correct / total))
+
+
+
+# Save the model checkpoint
+torch.save(model.state_dict(), 'model.ckpt')
